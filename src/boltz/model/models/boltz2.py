@@ -620,9 +620,8 @@ class Boltz2(LightningModule):
 
             argsort = torch.argsort(dict_out["iptm"], descending=True)
             best_idx = argsort[0].item()
-            coords_affinity = dict_out["sample_atom_coords"].detach()[best_idx][
-                None, None
-            ]
+            coords_affinity = dict_out["sample_atom_coords"].detach()  # (S, L, 3)
+            coords_affinity = coords_affinity[:, None]  # (S, 1, L, 3)
             s_inputs = self.input_embedder(feats, affinity=True)
 
             with torch.autocast("cuda", enabled=False):
@@ -632,7 +631,7 @@ class Boltz2(LightningModule):
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
                         feats=feats,
-                        multiplicity=1,
+                        multiplicity=coords_affinity.shape[0],
                         use_kernels=self.use_kernels,
                     )
 
@@ -646,7 +645,7 @@ class Boltz2(LightningModule):
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
                         feats=feats,
-                        multiplicity=1,
+                        multiplicity=coords_affinity.shape[0],
                         use_kernels=self.use_kernels,
                     )
                     dict_out_affinity2["affinity_probability_binary"] = (
@@ -705,7 +704,7 @@ class Boltz2(LightningModule):
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
                         feats=feats,
-                        multiplicity=1,
+                        multiplicity=coords_affinity.shape[0],
                         use_kernels=self.use_kernels,
                     )
                     dict_out.update(

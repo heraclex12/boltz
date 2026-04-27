@@ -289,6 +289,12 @@ class BoltzAffinityWriter(BasePredictionWriter):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _tensor_to_list(x):
+        if torch.is_tensor(x):
+            return x.detach().float().cpu().reshape(-1).tolist()
+        return list(x)
+
     def write_on_batch_end(
         self,
         trainer: Trainer,  # noqa: ARG002
@@ -303,35 +309,52 @@ class BoltzAffinityWriter(BasePredictionWriter):
         if prediction["exception"]:
             self.failed += 1
             return
-        # Dump affinity summary
-        affinity_summary = {}
-        pred_affinity_value = prediction["affinity_pred_value"]
-        pred_affinity_probability = prediction["affinity_probability_binary"]
-        affinity_summary = {
-            "affinity_pred_value": pred_affinity_value.item(),
-            "affinity_probability_binary": pred_affinity_probability.item(),
-        }
-        if "affinity_pred_value1" in prediction:
-            pred_affinity_value1 = prediction["affinity_pred_value1"]
-            pred_affinity_probability1 = prediction["affinity_probability_binary1"]
-            pred_affinity_value2 = prediction["affinity_pred_value2"]
-            pred_affinity_probability2 = prediction["affinity_probability_binary2"]
-            affinity_summary["affinity_pred_value1"] = pred_affinity_value1.item()
-            affinity_summary["affinity_probability_binary1"] = (
-                pred_affinity_probability1.item()
-            )
-            affinity_summary["affinity_pred_value2"] = pred_affinity_value2.item()
-            affinity_summary["affinity_probability_binary2"] = (
-                pred_affinity_probability2.item()
-            )
 
-        # Save the affinity summary
-        struct_dir = self.output_dir / batch["record"][0].id
+        record_id = batch["record"][0].id
+
+        struct_dir = self.output_dir / record_id
         struct_dir.mkdir(exist_ok=True)
-        path = struct_dir / f"affinity_{batch['record'][0].id}.json"
 
-        with path.open("w") as f:
-            f.write(json.dumps(affinity_summary, indent=4))
+        affinity_values = self._tensor_to_list(prediction["affinity_pred_value"])
+        affinity_probs = self._tensor_to_list(prediction["affinity_probability_binary"])
+
+        confidence_scores = None
+        if "confidence_score" in prediction:
+            confidence_scores = self._tensor_to_list(prediction["confidence_score"])
+
+        for sample_idx, affinity_value in enumerate(affinity_values):
+            affinity_summary = {
+                "sample_idx": sample_idx,
+                "affinity_pred_value": affinity_value,
+                "affinity_probability_binary": affinity_probs[sample_idx],
+            }
+
+            if confidence_scores is not None:
+                affinity_summary["confidence_score"] = confidence_scores[sample_idx]
+
+            if "affinity_pred_value1" in prediction:
+                affinity_values1 = self._tensor_to_list(prediction["affinity_pred_value1"])
+                affinity_probs1 = self._tensor_to_list(
+                    prediction["affinity_probability_binary1"]
+                )
+                affinity_values2 = self._tensor_to_list(prediction["affinity_pred_value2"])
+                affinity_probs2 = self._tensor_to_list(
+                    prediction["affinity_probability_binary2"]
+                )
+
+                affinity_summary["affinity_pred_value1"] = affinity_values1[sample_idx]
+                affinity_summary["affinity_probability_binary1"] = affinity_probs1[
+                    sample_idx
+                ]
+                affinity_summary["affinity_pred_value2"] = affinity_values2[sample_idx]
+                affinity_summary["affinity_probability_binary2"] = affinity_probs2[
+                    sample_idx
+                ]
+
+            path = struct_dir / f"affinity_{record_id}_model_{sample_idx}.json"
+
+            with path.open("w") as f:
+                f.write(json.dumps(affinity_summary, indent=4))
 
     def on_predict_epoch_end(
         self,
